@@ -20,13 +20,65 @@ from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
+import argparse
 import math
 import copy
+import os
 from tqdm import tqdm
 from collections import Counter
 from datasets import load_dataset
 from torchtext.data.utils import get_tokenizer
 from torchtext.vocab import vocab as build_vocab
+
+# ============================================================================
+# Command Line Arguments
+# ============================================================================
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="EGD-DLM: Entropy-Guided Distillation for Discrete Diffusion LM")
+
+    # Data
+    parser.add_argument("--dataset", type=str, default="wikitext-2",
+                        choices=["wikitext-2", "wikitext-103"],
+                        help="Dataset to use")
+    parser.add_argument("--seq_len", type=int, default=64, help="Sequence length")
+
+    # Model
+    parser.add_argument("--embed_dim", type=int, default=256, help="Embedding dimension")
+    parser.add_argument("--n_heads", type=int, default=8, help="Number of attention heads")
+    parser.add_argument("--n_layers", type=int, default=6, help="Number of transformer layers")
+    parser.add_argument("--dim_feedforward", type=int, default=1024, help="FFN dimension")
+    parser.add_argument("--dropout", type=float, default=0.1, help="Dropout rate")
+
+    # Training
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
+    parser.add_argument("--lr", type=float, default=5e-5, help="Learning rate")
+    parser.add_argument("--epochs_teacher", type=int, default=10, help="Teacher training epochs")
+    parser.add_argument("--epochs_student", type=int, default=5, help="Student distillation epochs")
+
+    # Entropy Scheduling
+    parser.add_argument("--lambda_entropy", type=float, default=0.5,
+                        help="Weight for entropy-based loss scaling")
+    parser.add_argument("--lambda_distill_entropy", type=float, default=1.0,
+                        help="Weight for entropy-guided distillation")
+
+    # Distillation
+    parser.add_argument("--teacher_steps", type=int, default=50, help="Teacher sampling steps")
+    parser.add_argument("--student_steps", type=int, default=8, help="Student sampling steps")
+    parser.add_argument("--distill_temp", type=float, default=2.0, help="Distillation temperature")
+    parser.add_argument("--alpha_soft", type=float, default=0.7, help="Weight for soft targets")
+
+    # Output
+    parser.add_argument("--output_dir", type=str, default="./checkpoints_egd",
+                        help="Output directory for models")
+
+    # Skip stages
+    parser.add_argument("--skip_teacher", action="store_true",
+                        help="Skip teacher training, load from checkpoint")
+    parser.add_argument("--teacher_checkpoint", type=str, default=None,
+                        help="Path to teacher checkpoint")
+
+    return parser.parse_args()
 
 # ============================================================================
 # Configuration
@@ -37,6 +89,7 @@ class Config:
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Data
+    DATASET = "wikitext-2"
     SEQ_LEN = 64
     MIN_FREQ = 2
 
@@ -80,16 +133,24 @@ class Config:
     NUM_SAMPLING_STEPS = 50
     CFG_SCALE = 1.5  # Classifier-free guidance scale
 
+    # Output
+    OUTPUT_DIR = "./checkpoints_egd"
+
 config = Config()
 
 # ============================================================================
 # Data Loading
 # ============================================================================
 
-def get_data_and_vocab():
-    """Load WikiText-2 dataset and build vocabulary."""
-    print("Loading WikiText-2 dataset...")
-    dataset = load_dataset("wikitext", "wikitext-2-raw-v1")
+def get_data_and_vocab(dataset_name="wikitext-2"):
+    """Load WikiText dataset and build vocabulary."""
+    if dataset_name == "wikitext-2":
+        dataset_id = "wikitext-2-raw-v1"
+    else:
+        dataset_id = "wikitext-103-raw-v1"
+
+    print(f"Loading {dataset_name} dataset...")
+    dataset = load_dataset("wikitext", dataset_id)
 
     tokenizer = get_tokenizer("basic_english")
 
@@ -770,7 +831,8 @@ def train_teacher(model, train_loader, val_loader, diffusion, config):
 
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
-            torch.save(model.state_dict(), "egd_teacher_model.pth")
+            save_path = os.path.join(config.OUTPUT_DIR, "egd_teacher_model.pth")
+            torch.save(model.state_dict(), save_path)
             print(f"  -> Saved best model (val_loss={best_val_loss:.4f})")
 
     return model
@@ -855,7 +917,8 @@ def train_student_with_distillation(teacher_model, student_model, train_loader,
 
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
-            torch.save(student_model.state_dict(), "egd_student_model.pth")
+            save_path = os.path.join(config.OUTPUT_DIR, "egd_student_model.pth")
+            torch.save(student_model.state_dict(), save_path)
             print(f"  -> Saved best student model (val_loss={best_val_loss:.4f})")
 
     return student_model
@@ -949,14 +1012,47 @@ def compare_sampling_speeds(teacher_model, student_model, vocab, config):
 # ============================================================================
 
 def main():
+    # Parse arguments
+    args = parse_args()
+
+    # Update config from args
+    config.DATASET = args.dataset
+    config.SEQ_LEN = args.seq_len
+    config.EMBED_DIM = args.embed_dim
+    config.N_HEADS = args.n_heads
+    config.N_LAYERS = args.n_layers
+    config.DIM_FEEDFORWARD = args.dim_feedforward
+    config.DROPOUT = args.dropout
+    config.BATCH_SIZE = args.batch_size
+    config.LEARNING_RATE = args.lr
+    config.NUM_EPOCHS_TEACHER = args.epochs_teacher
+    config.NUM_EPOCHS_STUDENT = args.epochs_student
+    config.LAMBDA_ENTROPY = args.lambda_entropy
+    config.LAMBDA_DISTILL_ENTROPY = args.lambda_distill_entropy
+    config.NUM_TEACHER_STEPS = args.teacher_steps
+    config.NUM_STUDENT_STEPS = args.student_steps
+    config.DISTILL_TEMPERATURE = args.distill_temp
+    config.ALPHA_SOFT = args.alpha_soft
+    config.ALPHA_HARD = 1.0 - args.alpha_soft
+    config.OUTPUT_DIR = args.output_dir
+
+    # Create output directory
+    os.makedirs(config.OUTPUT_DIR, exist_ok=True)
+
     print("="*60)
     print("EGD-DLM: Entropy-Guided Distillation for")
     print("Discrete Diffusion Language Models")
     print("="*60)
     print(f"Device: {config.DEVICE}")
+    print(f"Dataset: {config.DATASET}")
+    print(f"Output Directory: {config.OUTPUT_DIR}")
+    print(f"Batch Size: {config.BATCH_SIZE}")
+    print(f"Sequence Length: {config.SEQ_LEN}")
+    print(f"Lambda Entropy: {config.LAMBDA_ENTROPY}")
+    print(f"Lambda Distill Entropy: {config.LAMBDA_DISTILL_ENTROPY}")
 
     # Load data
-    train_data, val_data, vocab, tokenizer = get_data_and_vocab()
+    train_data, val_data, vocab, tokenizer = get_data_and_vocab(config.DATASET)
     train_loader, val_loader = get_dataloaders(train_data, val_data)
 
     # Initialize diffusion
@@ -974,7 +1070,12 @@ def main():
 
     print(f"\nTeacher Model Parameters: {sum(p.numel() for p in teacher_model.parameters()):,}")
 
-    teacher_model = train_teacher(teacher_model, train_loader, val_loader, diffusion, config)
+    if args.skip_teacher and args.teacher_checkpoint:
+        print(f"Loading teacher from checkpoint: {args.teacher_checkpoint}")
+        teacher_model.load_state_dict(torch.load(args.teacher_checkpoint, map_location=config.DEVICE))
+        teacher_model.to(config.DEVICE)
+    else:
+        teacher_model = train_teacher(teacher_model, train_loader, val_loader, diffusion, config)
 
     # Evaluate teacher
     teacher_ppl = evaluate_model(teacher_model, val_loader, diffusion, config, "Teacher")
@@ -1016,9 +1117,11 @@ def main():
     print(f"Speedup: {config.NUM_TEACHER_STEPS / config.NUM_STUDENT_STEPS:.1f}x")
 
     # Save final results
-    with open("egd_results.txt", "w") as f:
+    results_path = os.path.join(config.OUTPUT_DIR, "egd_results.txt")
+    with open(results_path, "w") as f:
         f.write("EGD-DLM Results\n")
         f.write("="*40 + "\n")
+        f.write(f"Dataset: {config.DATASET}\n")
         f.write(f"Teacher Perplexity: {teacher_ppl:.2f}\n")
         f.write(f"Student Perplexity: {student_ppl:.2f}\n")
         f.write(f"Teacher Steps: {config.NUM_TEACHER_STEPS}\n")
@@ -1030,8 +1133,8 @@ def main():
         f.write(f"  Distill Temperature: {config.DISTILL_TEMPERATURE}\n")
         f.write(f"  Alpha Soft/Hard: {config.ALPHA_SOFT}/{config.ALPHA_HARD}\n")
 
-    print("\nResults saved to egd_results.txt")
-    print("Models saved: egd_teacher_model.pth, egd_student_model.pth")
+    print(f"\nResults saved to {results_path}")
+    print(f"Models saved in {config.OUTPUT_DIR}/")
 
 
 if __name__ == "__main__":
