@@ -45,7 +45,7 @@ def simple_tokenizer(text):
 class SimpleVocab:
     """Simple vocabulary class without torchtext dependency."""
 
-    def __init__(self, counter, min_freq=2, specials=None):
+    def __init__(self, counter, min_freq=2, specials=None, max_size=None):
         self.stoi = {}  # string to index
         self.itos = []  # index to string
 
@@ -58,6 +58,9 @@ class SimpleVocab:
         # Add tokens from counter (sorted by frequency)
         sorted_tokens = sorted(counter.items(), key=lambda x: -x[1])
         for token, count in sorted_tokens:
+            # Check max_size limit (accounting for special tokens)
+            if max_size and len(self.itos) >= max_size:
+                break
             if count >= min_freq and token not in self.stoi:
                 self.stoi[token] = len(self.itos)
                 self.itos.append(token)
@@ -88,6 +91,8 @@ def parse_args():
                         choices=["wikitext-2", "wikitext-103"],
                         help="Dataset to use")
     parser.add_argument("--seq_len", type=int, default=64, help="Sequence length")
+    parser.add_argument("--max_vocab_size", type=int, default=50000,
+                        help="Maximum vocabulary size (for large datasets)")
 
     # Model
     parser.add_argument("--embed_dim", type=int, default=256, help="Embedding dimension")
@@ -138,6 +143,7 @@ class Config:
     DATASET = "wikitext-2"
     SEQ_LEN = 64
     MIN_FREQ = 2
+    MAX_VOCAB_SIZE = 50000  # Limit vocab size for efficiency
 
     # Model Architecture
     VOCAB_SIZE = None  # Set after loading data
@@ -208,14 +214,16 @@ def get_data_and_vocab(dataset_name="wikitext-2"):
                 tokens = simple_tokenizer(text)
                 counter.update(tokens)
 
-    # Create vocabulary with special tokens
+    # Create vocabulary with special tokens (with optional size limit)
     vocabulary = SimpleVocab(
         counter,
         min_freq=config.MIN_FREQ,
-        specials=[config.PAD_TOKEN, config.UNK_TOKEN, config.MASK_TOKEN]
+        specials=[config.PAD_TOKEN, config.UNK_TOKEN, config.MASK_TOKEN],
+        max_size=config.MAX_VOCAB_SIZE
     )
 
     config.VOCAB_SIZE = len(vocabulary)
+    print(f"Total unique tokens in corpus: {len(counter)}")
     config.PAD_IDX = vocabulary[config.PAD_TOKEN]
     config.UNK_IDX = vocabulary[config.UNK_TOKEN]
     config.MASK_IDX = vocabulary[config.MASK_TOKEN]
@@ -1063,6 +1071,7 @@ def main():
     # Update config from args
     config.DATASET = args.dataset
     config.SEQ_LEN = args.seq_len
+    config.MAX_VOCAB_SIZE = args.max_vocab_size
     config.EMBED_DIM = args.embed_dim
     config.N_HEADS = args.n_heads
     config.N_LAYERS = args.n_layers
