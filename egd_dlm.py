@@ -24,11 +24,57 @@ import argparse
 import math
 import copy
 import os
+import re
 from tqdm import tqdm
 from collections import Counter
 from datasets import load_dataset
-from torchtext.data.utils import get_tokenizer
-from torchtext.vocab import vocab as build_vocab
+
+
+# ============================================================================
+# Simple Tokenizer and Vocabulary (No torchtext dependency)
+# ============================================================================
+
+def simple_tokenizer(text):
+    """Simple word tokenizer using regex."""
+    # Lowercase and split on non-alphanumeric characters
+    text = text.lower()
+    tokens = re.findall(r'\b[a-z]+\b', text)
+    return tokens
+
+
+class SimpleVocab:
+    """Simple vocabulary class without torchtext dependency."""
+
+    def __init__(self, counter, min_freq=2, specials=None):
+        self.stoi = {}  # string to index
+        self.itos = []  # index to string
+
+        # Add special tokens first
+        if specials:
+            for token in specials:
+                self.stoi[token] = len(self.itos)
+                self.itos.append(token)
+
+        # Add tokens from counter (sorted by frequency)
+        sorted_tokens = sorted(counter.items(), key=lambda x: -x[1])
+        for token, count in sorted_tokens:
+            if count >= min_freq and token not in self.stoi:
+                self.stoi[token] = len(self.itos)
+                self.itos.append(token)
+
+        self.default_index = self.stoi.get("<unk>", 0)
+
+    def __getitem__(self, token):
+        return self.stoi.get(token, self.default_index)
+
+    def __len__(self):
+        return len(self.itos)
+
+    def get_itos(self):
+        return self.itos
+
+    def set_default_index(self, index):
+        self.default_index = index
 
 # ============================================================================
 # Command Line Arguments
@@ -152,26 +198,22 @@ def get_data_and_vocab(dataset_name="wikitext-2"):
     print(f"Loading {dataset_name} dataset...")
     dataset = load_dataset("wikitext", dataset_id)
 
-    tokenizer = get_tokenizer("basic_english")
-
-    # Build vocabulary
+    # Build vocabulary from training data
+    print("Building vocabulary...")
     counter = Counter()
     for split in ["train", "validation", "test"]:
-        for example in dataset[split]:
+        for example in tqdm(dataset[split], desc=f"Tokenizing {split}"):
             text = example["text"]
             if text.strip():
-                tokens = tokenizer(text.lower())
+                tokens = simple_tokenizer(text)
                 counter.update(tokens)
 
-    # Create vocab with special tokens
-    sorted_tokens = sorted(counter.items(), key=lambda x: -x[1])
-    filtered_tokens = [(t, c) for t, c in sorted_tokens if c >= config.MIN_FREQ]
-
-    vocabulary = build_vocab(
-        Counter(dict(filtered_tokens)),
+    # Create vocabulary with special tokens
+    vocabulary = SimpleVocab(
+        counter,
+        min_freq=config.MIN_FREQ,
         specials=[config.PAD_TOKEN, config.UNK_TOKEN, config.MASK_TOKEN]
     )
-    vocabulary.set_default_index(vocabulary[config.UNK_TOKEN])
 
     config.VOCAB_SIZE = len(vocabulary)
     config.PAD_IDX = vocabulary[config.PAD_TOKEN]
@@ -182,20 +224,23 @@ def get_data_and_vocab(dataset_name="wikitext-2"):
     print(f"Special tokens - PAD: {config.PAD_IDX}, UNK: {config.UNK_IDX}, MASK: {config.MASK_IDX}")
 
     # Tokenize dataset
-    def tokenize_and_numericalize(examples):
+    def tokenize_and_numericalize(data_split):
         result = []
-        for text in examples["text"]:
+        for example in data_split:
+            text = example["text"]
             if text.strip():
-                tokens = tokenizer(text.lower())
+                tokens = simple_tokenizer(text)
                 if len(tokens) >= 5:  # Filter very short sequences
                     ids = [vocabulary[t] for t in tokens]
                     result.append(ids)
         return result
 
+    print("Processing training data...")
     train_data = tokenize_and_numericalize(dataset["train"])
+    print("Processing validation data...")
     val_data = tokenize_and_numericalize(dataset["validation"])
 
-    return train_data, val_data, vocabulary, tokenizer
+    return train_data, val_data, vocabulary, simple_tokenizer
 
 
 def create_sequences(data, seq_len):
