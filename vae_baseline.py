@@ -85,7 +85,7 @@ class Config:
     BATCH_SIZE = 64
     LEARNING_RATE = 1e-4
     NUM_EPOCHS = 20
-    KL_WEIGHT = 0.1  # Weight for KL divergence term
+    KL_WEIGHT = 1.0  # Weight for KL divergence term (increased to prevent collapse)
 
     # Special tokens
     PAD_TOKEN = "<pad>"
@@ -213,34 +213,58 @@ class VAEEncoder(nn.Module):
 
 
 class VAEDecoder(nn.Module):
-    """LSTM-based VAE Decoder"""
+    """LSTM-based VAE Decoder with proper shifted input"""
 
-    def __init__(self, vocab_size, embed_dim, hidden_dim, latent_dim, n_layers, dropout):
+    def __init__(self, vocab_size, embed_dim, hidden_dim, latent_dim, n_layers, dropout, pad_idx):
         super().__init__()
-        self.embedding = nn.Embedding(vocab_size, embed_dim)
+        self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=pad_idx)
         self.latent_to_hidden = nn.Linear(latent_dim, hidden_dim * n_layers)
-        self.lstm = nn.LSTM(embed_dim, hidden_dim, n_layers,
-                           batch_first=True, dropout=dropout)
+        self.latent_to_cell = nn.Linear(latent_dim, hidden_dim * n_layers)
+
+        # Combine latent with input at each step
+        self.lstm = nn.LSTM(embed_dim + latent_dim, hidden_dim, n_layers,
+                           batch_first=True, dropout=dropout if n_layers > 1 else 0)
         self.output_proj = nn.Linear(hidden_dim, vocab_size)
 
         self.hidden_dim = hidden_dim
         self.n_layers = n_layers
+        self.latent_dim = latent_dim
+        self.pad_idx = pad_idx
 
-    def forward(self, x, z):
-        # x: (batch, seq_len) - input tokens
-        # z: (batch, latent_dim) - latent vector
+    def forward(self, x, z, targets=None):
+        """
+        Forward pass with SHIFTED input to prevent cheating.
 
-        batch_size = x.size(0)
+        x: (batch, seq_len) - input tokens (will be shifted right)
+        z: (batch, latent_dim) - latent vector
+        targets: original tokens for loss computation
+        """
+        batch_size, seq_len = x.size()
+
+        # Shift input right: [BOS, tok1, tok2, ...] predicts [tok1, tok2, tok3, ...]
+        # Create shifted input by prepending zeros and removing last token
+        shifted_x = torch.zeros_like(x)
+        shifted_x[:, 1:] = x[:, :-1]  # Shift right
+        shifted_x[:, 0] = self.pad_idx  # First token is PAD (acts as BOS)
 
         # Initialize hidden state from latent
-        hidden = self.latent_to_hidden(z)  # (batch, hidden_dim * n_layers)
+        hidden = self.latent_to_hidden(z)
         hidden = hidden.view(batch_size, self.n_layers, self.hidden_dim)
-        hidden = hidden.permute(1, 0, 2).contiguous()  # (n_layers, batch, hidden_dim)
-        cell = torch.zeros_like(hidden)
+        hidden = hidden.permute(1, 0, 2).contiguous()
 
-        embedded = self.embedding(x)  # (batch, seq_len, embed_dim)
-        output, _ = self.lstm(embedded, (hidden, cell))  # (batch, seq_len, hidden_dim)
-        logits = self.output_proj(output)  # (batch, seq_len, vocab_size)
+        cell = self.latent_to_cell(z)
+        cell = cell.view(batch_size, self.n_layers, self.hidden_dim)
+        cell = cell.permute(1, 0, 2).contiguous()
+
+        # Embed shifted input
+        embedded = self.embedding(shifted_x)  # (batch, seq_len, embed_dim)
+
+        # Concatenate latent to each position (so decoder depends on z)
+        z_expanded = z.unsqueeze(1).expand(-1, seq_len, -1)  # (batch, seq_len, latent_dim)
+        lstm_input = torch.cat([embedded, z_expanded], dim=-1)  # (batch, seq_len, embed_dim + latent_dim)
+
+        output, _ = self.lstm(lstm_input, (hidden, cell))
+        logits = self.output_proj(output)
 
         return logits
 
@@ -248,11 +272,12 @@ class VAEDecoder(nn.Module):
 class TextVAE(nn.Module):
     """Complete VAE for Text Generation"""
 
-    def __init__(self, vocab_size, embed_dim, hidden_dim, latent_dim, n_layers, dropout):
+    def __init__(self, vocab_size, embed_dim, hidden_dim, latent_dim, n_layers, dropout, pad_idx=0):
         super().__init__()
         self.encoder = VAEEncoder(vocab_size, embed_dim, hidden_dim, latent_dim, n_layers, dropout)
-        self.decoder = VAEDecoder(vocab_size, embed_dim, hidden_dim, latent_dim, n_layers, dropout)
+        self.decoder = VAEDecoder(vocab_size, embed_dim, hidden_dim, latent_dim, n_layers, dropout, pad_idx)
         self.latent_dim = latent_dim
+        self.pad_idx = pad_idx
 
     def reparameterize(self, mu, logvar):
         """Reparameterization trick"""
@@ -273,24 +298,49 @@ class TextVAE(nn.Module):
         return logits, mu, logvar
 
     def generate(self, batch_size, seq_len, device, temperature=1.0):
-        """Generate sequences from prior"""
+        """Generate sequences from prior using autoregressive decoding"""
         self.eval()
         with torch.no_grad():
             # Sample from prior
             z = torch.randn(batch_size, self.latent_dim, device=device)
 
-            # Start with BOS token
-            generated = torch.full((batch_size, 1), config.BOS_IDX,
-                                   dtype=torch.long, device=device)
+            # Initialize hidden state from latent
+            hidden = self.decoder.latent_to_hidden(z)
+            hidden = hidden.view(batch_size, self.decoder.n_layers, self.decoder.hidden_dim)
+            hidden = hidden.permute(1, 0, 2).contiguous()
 
-            for _ in range(seq_len - 1):
-                logits = self.decoder(generated, z)
-                next_token_logits = logits[:, -1, :] / temperature
-                probs = F.softmax(next_token_logits, dim=-1)
-                next_token = torch.multinomial(probs, num_samples=1)
-                generated = torch.cat([generated, next_token], dim=1)
+            cell = self.decoder.latent_to_cell(z)
+            cell = cell.view(batch_size, self.decoder.n_layers, self.decoder.hidden_dim)
+            cell = cell.permute(1, 0, 2).contiguous()
 
-            return generated
+            # Start with PAD token (acts as BOS)
+            current_token = torch.full((batch_size, 1), self.pad_idx,
+                                       dtype=torch.long, device=device)
+            generated = []
+
+            for _ in range(seq_len):
+                # Embed current token
+                embedded = self.decoder.embedding(current_token)  # (batch, 1, embed_dim)
+
+                # Concatenate with latent
+                z_step = z.unsqueeze(1)  # (batch, 1, latent_dim)
+                lstm_input = torch.cat([embedded, z_step], dim=-1)
+
+                # LSTM step
+                output, (hidden, cell) = self.decoder.lstm(lstm_input, (hidden, cell))
+
+                # Project to vocab
+                logits = self.decoder.output_proj(output[:, -1, :])  # (batch, vocab_size)
+                logits = logits / temperature
+
+                # Sample
+                probs = F.softmax(logits, dim=-1)
+                next_token = torch.multinomial(probs, num_samples=1)  # (batch, 1)
+
+                generated.append(next_token)
+                current_token = next_token
+
+            return torch.cat(generated, dim=1)
 
 
 # ============================================================================
@@ -476,7 +526,8 @@ def main():
         hidden_dim=config.HIDDEN_DIM,
         latent_dim=config.LATENT_DIM,
         n_layers=config.N_LAYERS,
-        dropout=config.DROPOUT
+        dropout=config.DROPOUT,
+        pad_idx=config.PAD_IDX
     )
 
     print(f"\nVAE Parameters: {sum(p.numel() for p in model.parameters()):,}")
