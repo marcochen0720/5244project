@@ -173,53 +173,24 @@ Interestingly, entropy-guided distillation has a connection to label smoothing \
 % ============================================================================
 
 \subsection{Experimental Setup}
-We evaluate on WikiText-103 \cite{merity2017pointer} with 30K vocabulary. Tables~\ref{tab:config} shows configurations.
+We evaluate on WikiText-103 \cite{merity2017pointer} with 30K vocabulary. Table~\ref{tab:config} shows configurations.
 
 \begin{table}[h]
 \centering
 \caption{Model and Training Configuration}
 \label{tab:config}
 \small
-\begin{minipage}[t]{0.32\columnwidth}
-\centering
-\textbf{Architecture}\\[0.3em]
-\begin{tabular}{lc}
+\begin{tabular}{ll|ll|ll}
 \toprule
-Embed dim & 512 \\
-Layers & 12 \\
-Heads & 8 \\
-FFN dim & 2048 \\
-Params & 70.7M \\
+\multicolumn{2}{c|}{\textbf{Architecture}} & \multicolumn{2}{c|}{\textbf{Training}} & \multicolumn{2}{c}{\textbf{EGD Params}} \\
+\midrule
+Embed dim & 512 & Seq length & 128 & $\lambda_{\text{train}}$ & 0.5 \\
+Layers & 12 & Batch size & 64 & $\lambda_{\text{distill}}$ & 1.0 \\
+Heads & 8 & LR & $10^{-4}$ & $\alpha$ & 0.7 \\
+FFN dim & 2048 & Teacher ep & 20-30 & $\tau$ & 2.0 \\
+Params & 70.7M & Student ep & 10-15 & & \\
 \bottomrule
 \end{tabular}
-\end{minipage}
-\hfill
-\begin{minipage}[t]{0.32\columnwidth}
-\centering
-\textbf{Training}\\[0.3em]
-\begin{tabular}{lc}
-\toprule
-Seq length & 128 \\
-Batch size & 64 \\
-LR & $10^{-4}$ \\
-Teacher ep & 20-30 \\
-Student ep & 10-15 \\
-\bottomrule
-\end{tabular}
-\end{minipage}
-\hfill
-\begin{minipage}[t]{0.28\columnwidth}
-\centering
-\textbf{EGD Params}\\[0.3em]
-\begin{tabular}{lc}
-\toprule
-$\lambda_{\text{train}}$ & 0.5 \\
-$\lambda_{\text{distill}}$ & 1.0 \\
-$\alpha$ & 0.7 \\
-$\tau$ & 2.0 \\
-\bottomrule
-\end{tabular}
-\end{minipage}
 \end{table}
 
 
@@ -573,12 +544,8 @@ Y.~Wang, et al.,
 
 The complete implementation is available on GitHub. Below we list the main code files corresponding to the methods described in this paper.
 
-\subsection{Main Model Implementation}
-
-\textbf{File: \texttt{egd\_dlm.py}} -- Core implementation of EGD-DLM including the Transformer architecture, entropy-scheduled training, and entropy-guided distillation.
-
 \lstset{
-    basicstyle=\ttfamily\footnotesize,
+    basicstyle=\ttfamily\scriptsize,
     frame=single,
     breaklines=true,
     numbers=left,
@@ -586,34 +553,26 @@ The complete implementation is available on GitHub. Below we list the main code 
     language=Python,
     showstringspaces=false,
     commentstyle=\color{gray},
-    keywordstyle=\color{blue}
+    keywordstyle=\color{blue},
+    tabsize=4
 }
 
-% Placeholder for code - user will manually add
-\begin{lstlisting}
-# egd_dlm.py
-# Full implementation available on GitHub
-# Please see repository for complete source code
-\end{lstlisting}
+\subsection{Main Model Implementation}
+
+\textbf{File: \texttt{egd\_dlm.py}} -- Core implementation of EGD-DLM including the Transformer architecture, entropy-scheduled training, and entropy-guided distillation.
+
+\lstinputlisting[caption={EGD-DLM Main Implementation}]{egd_dlm.py}
 
 \subsection{VAE Baseline}
 
 \textbf{File: \texttt{vae\_baseline.py}} -- Variational Autoencoder baseline for text generation using LSTM encoder-decoder architecture.
 
-\begin{lstlisting}
-# vae_baseline.py
-# Full implementation available on GitHub
-# Please see repository for complete source code
-\end{lstlisting}
+\lstinputlisting[caption={VAE Baseline Implementation}]{vae_baseline.py}
 
 \subsection{Embedding Analysis}
 
 \textbf{File: \texttt{run\_analysis.py}} -- PCA, clustering, and t-SNE analysis scripts for embedding space visualization.
 
-\begin{lstlisting}
-# run_analysis.py
-# Full implementation available on GitHub
-# Please see repository for complete source code
-\end{lstlisting}
+\lstinputlisting[caption={Embedding Analysis Script}]{run_analysis.py}
 
 \end{document}
