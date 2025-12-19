@@ -249,8 +249,11 @@ def analyze_tsne(embeddings, save_dir, model_name="model", n_samples=3000):
 
     print(f"Running t-SNE on {len(embeddings_sample)} tokens...")
 
-    # Apply t-SNE
-    tsne = TSNE(n_components=2, perplexity=30, random_state=42, n_iter=1000)
+    # Apply t-SNE (use max_iter for newer sklearn versions)
+    try:
+        tsne = TSNE(n_components=2, perplexity=30, random_state=42, max_iter=1000)
+    except TypeError:
+        tsne = TSNE(n_components=2, perplexity=30, random_state=42)
     embeddings_tsne = tsne.fit_transform(embeddings_sample)
 
     # Plot
