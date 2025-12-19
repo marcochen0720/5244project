@@ -16,6 +16,7 @@
 \usepackage{algorithm}
 \usepackage{algorithmic}
 \usepackage{natbib}
+\usepackage{subcaption}
 
 % Page layout
 \usepackage[margin=1in]{geometry}
@@ -23,6 +24,10 @@
 % Line spacing
 \usepackage{setspace}
 \onehalfspacing
+
+% Consistent paragraph indentation
+\setlength{\parindent}{1.5em}
+\setlength{\parskip}{0.5em}
 
 % Title formatting
 \title{\textbf{EGD-DLM: Entropy-Guided Distillation for\\ Accelerating Discrete Diffusion Language Models}}
@@ -46,7 +51,7 @@
 Discrete diffusion language models (DLMs) have emerged as a promising alternative to autoregressive models, offering advantages such as parallel generation and the ability to overcome the reversal curse. However, their iterative denoising process requires many sampling steps, leading to slow inference. In this work, we propose \textbf{Entropy-Guided Distillation for Discrete Diffusion Language Models (EGD-DLM)}, a novel framework that accelerates DLM inference through knowledge distillation guided by token-level entropy. Our key insight is that tokens with high entropy (high uncertainty) in the teacher's predictions represent ``hard'' knowledge that requires more attention during distillation. By weighting the distillation loss according to teacher entropy, we enable more effective knowledge transfer. Experiments on WikiText-103 demonstrate that EGD-DLM achieves \textbf{8.96$\times$ speedup} (50 steps $\rightarrow$ 8 steps) while the student model surprisingly \textbf{surpasses the teacher} in perplexity (1193.30 vs. 1207.28), a phenomenon not observed in standard distillation where student performance degrades.
 \end{abstract}
 
-\textbf{Keywords:} Diffusion Language Models, Knowledge Distillation, Entropy Scheduling, Text Generation, Unsupervised Learning
+\noindent\textbf{Keywords:} Diffusion Language Models, Knowledge Distillation, Entropy Scheduling, Text Generation, Unsupervised Learning
 
 % ============================================================================
 \section{Introduction}
@@ -150,15 +155,7 @@ where $\tau$ is the temperature for softening distributions, and $\mathcal{L}_{\
 
 \subsection{Model Architecture}
 
-We use a Transformer encoder architecture similar to BERT \citep{devlin2019bert} and LLaDA \citep{nie2025llada}:
-
-\begin{itemize}
-    \item \textbf{Token Embedding}: Learnable embedding matrix $\mathbf{E} \in \mathbb{R}^{|\mathcal{V}| \times d}$
-    \item \textbf{Positional Encoding}: Sinusoidal position embeddings
-    \item \textbf{Time Embedding}: Sinusoidal time embedding followed by MLP, added to all positions
-    \item \textbf{Transformer Layers}: Standard encoder layers with multi-head self-attention and feed-forward networks
-    \item \textbf{Output Projection}: Linear layer projecting to vocabulary logits
-\end{itemize}
+We use a Transformer encoder architecture similar to BERT \citep{devlin2019bert} and LLaDA \citep{nie2025llada}. The architecture consists of: (1) a learnable token embedding matrix $\mathbf{E} \in \mathbb{R}^{|\mathcal{V}| \times d}$, (2) sinusoidal positional encodings, (3) a time embedding module using sinusoidal encoding followed by an MLP, (4) standard Transformer encoder layers with multi-head self-attention and feed-forward networks, and (5) a linear output projection to vocabulary logits.
 
 % ============================================================================
 \section{Theoretical Motivation}
@@ -189,51 +186,94 @@ Interestingly, entropy-guided distillation has a connection to label smoothing \
 
 \textbf{Dataset.} We evaluate on WikiText-103 \citep{merity2017pointer}, a large-scale language modeling benchmark containing approximately 100M tokens from Wikipedia articles. We limit vocabulary size to 30,000 tokens for computational efficiency.
 
-\textbf{Model Configuration.} Our model uses the following architecture:
-\begin{itemize}
-    \item Embedding dimension: 512
-    \item Number of layers: 12
-    \item Attention heads: 8
-    \item Feed-forward dimension: 2048
-    \item Dropout: 0.1
-    \item Total parameters: \textbf{70.7M}
-\end{itemize}
+\textbf{Model Configuration.} Table~\ref{tab:model_config} summarizes the model architecture.
 
-\textbf{Training Details.}
-\begin{itemize}
-    \item Sequence length: 128
-    \item Batch size: 64
-    \item Learning rate: $1 \times 10^{-4}$ with cosine annealing
-    \item Teacher training: 20-30 epochs
-    \item Student distillation: 10-15 epochs
-    \item Diffusion steps (training): 1000
-    \item Teacher sampling steps: 50
-    \item Student sampling steps: 8
-\end{itemize}
+\begin{table}[h]
+\centering
+\caption{Model Architecture Configuration}
+\label{tab:model_config}
+\begin{tabular}{lc}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Embedding dimension & 512 \\
+Number of layers & 12 \\
+Attention heads & 8 \\
+Feed-forward dimension & 2048 \\
+Dropout & 0.1 \\
+\midrule
+\textbf{Total parameters} & \textbf{70.7M} \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\textbf{Hyperparameters.}
-\begin{itemize}
-    \item $\lambda_{\text{train}} = 0.5$ (entropy training weight)
-    \item $\lambda_{\text{distill}} = 1.0$ (entropy distillation weight)
-    \item $\alpha = 0.7$ (soft target weight)
-    \item $\tau = 2.0$ (distillation temperature)
-\end{itemize}
+\textbf{Training Details.} Table~\ref{tab:training_config} shows the training configuration.
+
+\begin{table}[h]
+\centering
+\caption{Training Configuration}
+\label{tab:training_config}
+\begin{tabular}{lc}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Sequence length & 128 \\
+Batch size & 64 \\
+Learning rate & $1 \times 10^{-4}$ \\
+LR schedule & Cosine annealing \\
+Teacher training epochs & 20--30 \\
+Student distillation epochs & 10--15 \\
+Diffusion steps (training) & 1000 \\
+Teacher sampling steps & 50 \\
+Student sampling steps & 8 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Hyperparameters.} Table~\ref{tab:hyperparams} lists the key hyperparameters for entropy-guided distillation.
+
+\begin{table}[h]
+\centering
+\caption{EGD-DLM Hyperparameters}
+\label{tab:hyperparams}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Symbol} & \textbf{Description} & \textbf{Value} \\
+\midrule
+$\lambda_{\text{train}}$ & Entropy training weight & 0.5 \\
+$\lambda_{\text{distill}}$ & Entropy distillation weight & 1.0 \\
+$\alpha$ & Soft target weight & 0.7 \\
+$\tau$ & Distillation temperature & 2.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \textbf{Evaluation Metric.} We report perplexity (PPL) on the validation set, computed as $\exp(\mathcal{L})$ where $\mathcal{L}$ is the average cross-entropy loss on masked positions at $t=0.5$.
 
 \subsection{Baseline Methods}
 
-To provide comprehensive comparison with course-relevant unsupervised learning methods, we implement the following baselines:
+To provide comprehensive comparison with course-relevant unsupervised learning methods, we implement the following baselines.
 
-\textbf{Variational Autoencoder (VAE).} We implement a VAE for text generation following \citet{bowman2016generating}. The encoder uses a bidirectional LSTM to encode the input sequence into a latent distribution $q(z|x) = \mathcal{N}(\mu, \sigma^2)$. The decoder is an LSTM that generates tokens autoregressively, conditioned on the sampled latent $z$. We use hidden dimension 256, latent dimension 64, and KL weight $\beta = 1.0$.
+\textbf{Variational Autoencoder (VAE).} We implement a VAE for text generation following \citet{bowman2016generating}. The encoder uses a bidirectional LSTM to encode the input sequence into a latent distribution $q(z|x) = \mathcal{N}(\mu, \sigma^2)$. The decoder is an LSTM that generates tokens autoregressively, conditioned on the sampled latent $z$. Table~\ref{tab:vae_config} shows the VAE configuration.
 
-\textbf{Important Note on Evaluation Protocols.} The PPL metrics for VAE and diffusion models are \textbf{not directly comparable} due to fundamentally different evaluation procedures:
-\begin{itemize}
-    \item \textbf{VAE}: Uses teacher-forcing evaluation---at each step, the true previous token is given, and the model predicts $P(x_t | x_{<t}, z)$. This is a \textit{conditional} next-token prediction task.
-    \item \textbf{Diffusion}: Uses masked prediction---given a partially masked sequence at $t=0.5$, the model must predict all masked tokens simultaneously. This is a \textit{joint} prediction task with no access to ground truth during evaluation.
-\end{itemize}
+\begin{table}[h]
+\centering
+\caption{VAE Baseline Configuration}
+\label{tab:vae_config}
+\begin{tabular}{lc}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Hidden dimension & 256 \\
+Latent dimension & 64 \\
+KL weight ($\beta$) & 1.0 \\
+Encoder & Bidirectional LSTM \\
+Decoder & LSTM \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-Therefore, we report results separately and emphasize \textit{within-family} comparisons (VAE vs. AR models; diffusion teacher vs. student).
+\textbf{Important Note on Evaluation Protocols.} The PPL metrics for VAE and diffusion models are \textbf{not directly comparable} due to fundamentally different evaluation procedures. VAE uses teacher-forcing evaluation where at each step the true previous token is given, making it a \textit{conditional} next-token prediction task. In contrast, diffusion models use masked prediction where the model must predict all masked tokens simultaneously at $t=0.5$, making it a \textit{joint} prediction task with no access to ground truth during evaluation. Therefore, we report results separately and emphasize \textit{within-family} comparisons.
 
 \begin{table}[t]
 \centering
@@ -244,8 +284,8 @@ Therefore, we report results separately and emphasize \textit{within-family} com
 \textbf{Method} & \textbf{Eval Protocol} & \textbf{PPL} & \textbf{Generation} \\
 \midrule
 VAE & Teacher-forcing & 110.58 & Sequential \\
-EGD-DLM Teacher & Masked (t=0.5) & 1207.28 & Parallel \\
-EGD-DLM Student & Masked (t=0.5) & 1193.30 & Parallel \\
+EGD-DLM Teacher & Masked ($t$=0.5) & 1207.28 & Parallel \\
+EGD-DLM Student & Masked ($t$=0.5) & 1193.30 & Parallel \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -284,7 +324,7 @@ Base & 0.0 & 0.0 & 1178.97 & 1192.95 & +1.19\% & 8.93$\times$ \\
 
 \subsection{Analysis of Entropy Dynamics}
 
-Table~\ref{tab:entropy_dynamics} shows the entropy evolution during distillation.
+Table~\ref{tab:entropy_dynamics} shows the entropy evolution during distillation. In both cases, student entropy converges toward teacher entropy, indicating successful knowledge transfer. The EGD-DLM teacher has slightly lower entropy (7.049 vs 7.095), suggesting more confident predictions despite higher PPL.
 
 \begin{table}[t]
 \centering
@@ -292,7 +332,7 @@ Table~\ref{tab:entropy_dynamics} shows the entropy evolution during distillation
 \label{tab:entropy_dynamics}
 \begin{tabular}{lccc}
 \toprule
-\textbf{Method} & \textbf{Teacher Entropy} & \textbf{Student Entropy (Start)} & \textbf{Student Entropy (End)} \\
+\textbf{Method} & \textbf{Teacher Entropy} & \textbf{Student (Start)} & \textbf{Student (End)} \\
 \midrule
 Base & 7.095 & 7.093 & 7.091 \\
 EGD-DLM & 7.049 & 7.076 & 7.074 \\
@@ -300,11 +340,9 @@ EGD-DLM & 7.049 & 7.076 & 7.074 \\
 \end{tabular}
 \end{table}
 
-In both cases, student entropy converges toward teacher entropy, indicating successful knowledge transfer. The EGD-DLM teacher has slightly lower entropy (7.049 vs 7.095), suggesting more confident predictions despite higher PPL.
-
 \subsection{Distillation Loss Analysis}
 
-Table~\ref{tab:soft_loss} illustrates the soft loss (KL divergence) evolution during distillation.
+Table~\ref{tab:soft_loss} illustrates the soft loss (KL divergence) evolution during distillation. The EGD-DLM soft loss starts higher (0.0012 vs 0.0003) because entropy weighting emphasizes difficult tokens. However, it decreases more dramatically (83\% reduction) compared to Base, indicating that the student is successfully learning the challenging cases that entropy weighting prioritizes.
 
 \begin{table}[t]
 \centering
@@ -320,9 +358,9 @@ EGD-DLM & 0.0012 & 0.0007 & 0.0002 \\
 \end{tabular}
 \end{table}
 
-The EGD-DLM soft loss starts higher (0.0012 vs 0.0003) because entropy weighting emphasizes difficult tokens. However, it decreases more dramatically (83\% reduction) compared to Base, indicating that the student is successfully learning the challenging cases that entropy weighting prioritizes.
-
 \subsection{Sampling Speed Comparison}
+
+Table~\ref{tab:speed} shows the sampling speed comparison. The student achieves nearly 9$\times$ wall-clock speedup, reducing generation time from 0.30s to 0.03s per batch.
 
 \begin{table}[t]
 \centering
@@ -338,19 +376,54 @@ Student & 8 & 0.03 & \textbf{8.96$\times$} \\
 \end{tabular}
 \end{table}
 
-The student achieves nearly 9$\times$ wall-clock speedup, reducing generation time from 0.30s to 0.03s per batch.
-
 \subsection{Embedding Space Analysis}
 
-To understand the learned representations, we analyze the token embeddings using PCA and clustering---core unsupervised learning techniques covered in STAT GR 5244.
+To understand the learned representations, we analyze the token embeddings using PCA and clustering---core unsupervised learning techniques covered in STAT GR 5244. Table~\ref{tab:embedding_analysis} summarizes the embedding analysis results.
 
-\textbf{PCA Analysis.} We apply PCA to the 512-dimensional token embeddings from our trained diffusion model. The first 10 principal components capture only \textbf{2.46\%} of the total variance, indicating that the embedding space is highly distributed across many dimensions. This suggests that the model learns a smooth, high-dimensional semantic manifold rather than a low-dimensional structure, which is typical for neural language models.
+\begin{table}[h]
+\centering
+\caption{Embedding Space Analysis Results}
+\label{tab:embedding_analysis}
+\begin{tabular}{lc}
+\toprule
+\textbf{Analysis} & \textbf{Result} \\
+\midrule
+Embedding dimension & 512 \\
+Top 10 PC variance & 2.46\% \\
+Optimal K (K-Means) & 2 \\
+Silhouette score (K-Means) & 0.0134 \\
+Optimal K (GMM) & 2 \\
+Silhouette score (GMM) & 0.0124 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\textbf{K-Means Clustering.} We evaluate K-means clustering with $k \in \{2, ..., 11\}$ using silhouette scores. The optimal number of clusters is \textbf{K=2} with a silhouette score of \textbf{0.0134}. The low silhouette score indicates that token embeddings do not form well-separated discrete clusters, but rather occupy a continuous semantic space. The two clusters roughly correspond to high-frequency function words versus lower-frequency content words.
+\textbf{PCA Analysis.} We apply PCA to the 512-dimensional token embeddings from our trained diffusion model. As shown in Figure~\ref{fig:pca}, the first 10 principal components capture only \textbf{2.46\%} of the total variance, indicating that the embedding space is highly distributed across many dimensions. This suggests that the model learns a smooth, high-dimensional semantic manifold rather than a low-dimensional structure, which is typical for neural language models.
 
-\textbf{GMM Clustering.} Gaussian Mixture Models yield similar results (optimal K=2, silhouette=0.0124), confirming that the embedding space lacks strong cluster structure. This is consistent with the distributional hypothesis in linguistics: word meanings are continuously distributed rather than discretely categorized.
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/pca_EGD_DLM.png}
+\caption{PCA analysis of token embeddings. Left: Explained variance ratio for each principal component. Middle: Cumulative explained variance showing 90\% threshold. Right: 2D projection of embeddings using the first two principal components.}
+\label{fig:pca}
+\end{figure}
 
-\textbf{t-SNE Visualization.} We apply t-SNE to visualize 3,000 sampled token embeddings in 2D space. The visualization shows a relatively uniform distribution with gradual transitions between regions, further confirming the smooth nature of the learned semantic space.
+\textbf{Clustering Analysis.} We evaluate K-means and GMM clustering with $k \in \{2, ..., 11\}$ using silhouette scores. As shown in Figure~\ref{fig:clustering}, the optimal number of clusters is \textbf{K=2} with a silhouette score of \textbf{0.0134}. The low silhouette score indicates that token embeddings do not form well-separated discrete clusters, but rather occupy a continuous semantic space. The two clusters roughly correspond to high-frequency function words versus lower-frequency content words.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/clustering_EGD_DLM.png}
+\caption{Clustering analysis of token embeddings. Left: Silhouette scores for K-Means and GMM across different numbers of clusters. Right: K-Means clustering visualization with optimal K=2.}
+\label{fig:clustering}
+\end{figure}
+
+\textbf{t-SNE Visualization.} We apply t-SNE to visualize 3,000 sampled token embeddings in 2D space. As shown in Figure~\ref{fig:tsne}, the visualization shows a relatively uniform distribution with gradual transitions between regions, further confirming the smooth nature of the learned semantic space. This is consistent with the distributional hypothesis in linguistics: word meanings are continuously distributed rather than discretely categorized.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.8\textwidth]{figures/tsne_EGD_DLM.png}
+\caption{t-SNE visualization of 3,000 sampled token embeddings. Colors represent token indices (ordered by frequency). The uniform distribution with gradual transitions confirms that the model learns a continuous semantic manifold.}
+\label{fig:tsne}
+\end{figure}
 
 These analyses reveal that our diffusion model learns a \textit{continuous semantic manifold} rather than discrete clusters---a desirable property for language modeling where meaning varies smoothly across vocabulary.
 
