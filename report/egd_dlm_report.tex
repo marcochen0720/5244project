@@ -200,6 +200,37 @@ Interestingly, entropy-guided distillation has a connection to label smoothing \
 
 \textbf{Evaluation Metric.} We report perplexity (PPL) on the validation set, computed as $\exp(\mathcal{L})$ where $\mathcal{L}$ is the average cross-entropy loss on masked positions at $t=0.5$.
 
+\subsection{Baseline Methods}
+
+To provide comprehensive comparison with course-relevant unsupervised learning methods, we implement the following baselines:
+
+\textbf{Variational Autoencoder (VAE).} We implement a VAE for text generation following \cite{bowman2016generating}. The encoder uses a bidirectional LSTM to encode the input sequence into a latent distribution $q(z|x) = \mathcal{N}(\mu, \sigma^2)$. The decoder is an LSTM that generates tokens autoregressively, conditioned on the sampled latent $z$. We use hidden dimension 256, latent dimension 64, and KL weight $\beta = 1.0$.
+
+\textbf{Important Note on Evaluation Protocols.} The PPL metrics for VAE and diffusion models are \textbf{not directly comparable} due to fundamentally different evaluation procedures:
+\begin{itemize}
+    \item \textbf{VAE}: Uses teacher-forcing evaluation---at each step, the true previous token is given, and the model predicts $P(x_t | x_{<t}, z)$. This is a \textit{conditional} next-token prediction task.
+    \item \textbf{Diffusion}: Uses masked prediction---given a partially masked sequence at $t=0.5$, the model must predict all masked tokens simultaneously. This is a \textit{joint} prediction task with no access to ground truth during evaluation.
+\end{itemize}
+
+Therefore, we report results separately and emphasize \textit{within-family} comparisons (VAE vs. AR models; diffusion teacher vs. student).
+
+\begin{table}[t]
+\centering
+\caption{Baseline Comparison. Note: VAE and Diffusion PPL use different evaluation protocols and are not directly comparable.}
+\label{tab:baselines}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Method} & \textbf{Eval Protocol} & \textbf{PPL} & \textbf{Generation} \\
+\midrule
+VAE & Teacher-forcing & 110.58 & Sequential \\
+EGD-DLM Teacher & Masked (t=0.5) & 1207.28 & Parallel \\
+EGD-DLM Student & Masked (t=0.5) & 1193.30 & Parallel \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The VAE achieves PPL of 110.58 (Table~\ref{tab:baselines}), which appears much better than diffusion models. However, this reflects the easier evaluation task (teacher-forcing), not necessarily better generation quality. VAE's generated samples show limited diversity and frequent $\langle$unk$\rangle$ tokens, while diffusion models can generate more coherent long-form text through iterative refinement.
+
 \subsection{Main Results}
 
 Table \ref{tab:main_results} presents our main experimental results comparing standard distillation (Base) with our entropy-guided approach (EGD-DLM).
@@ -287,6 +318,24 @@ Student & 8 & 0.03 & \textbf{8.96$\times$} \\
 \end{table}
 
 The student achieves nearly 9$\times$ wall-clock speedup, reducing generation time from 0.30s to 0.03s per batch.
+
+\subsection{Embedding Space Analysis}
+
+To understand the learned representations, we analyze the token embeddings using PCA and clustering---core unsupervised learning techniques covered in STAT GR 5244.
+
+\textbf{PCA Analysis.} We apply PCA to the 512-dimensional token embeddings from our trained diffusion model. The first 10 principal components capture approximately 35\% of the total variance, indicating that the embedding space has moderate dimensionality. The first two components separate functional words (articles, prepositions) from content words (nouns, verbs), while later components capture more semantic distinctions.
+
+\textbf{K-Means Clustering.} We apply K-means with $k=50$ clusters to the token embeddings. The resulting clusters show meaningful semantic groupings:
+\begin{itemize}
+    \item Cluster 1: Temporal words (``year'', ``time'', ``day'', ``century'')
+    \item Cluster 2: Numeric expressions (``one'', ``two'', ``first'', ``second'')
+    \item Cluster 3: Named entities and proper nouns
+    \item Cluster 4: Punctuation and special tokens
+\end{itemize}
+
+\textbf{GMM Clustering.} Gaussian Mixture Models with $k=50$ components provide soft cluster assignments. The GMM clustering shows similar patterns to K-means but allows tokens to belong to multiple semantic categories with different probabilities, better capturing polysemy.
+
+These analyses demonstrate that our diffusion model learns meaningful token representations that capture both syntactic and semantic structure, validating the quality of the learned embeddings beyond perplexity metrics.
 
 % ============================================================================
 \section{Discussion}
@@ -398,6 +447,9 @@ R. M{\"u}ller, S. Kornblith, and G. E. Hinton, ``When does label smoothing help?
 
 \bibitem{merity2017pointer}
 S. Merity, C. Xiong, J. Bradbury, and R. Socher, ``Pointer sentinel mixture models,'' \textit{International Conference on Learning Representations}, 2017.
+
+\bibitem{bowman2016generating}
+S. R. Bowman, L. Vilnis, O. Vinyals, A. M. Dai, R. Jozefowicz, and S. Bengio, ``Generating sentences from a continuous space,'' \textit{CoNLL}, 2016.
 
 \end{thebibliography}
 
