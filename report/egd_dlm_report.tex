@@ -1,53 +1,71 @@
-\documentclass[conference]{IEEEtran}
-\usepackage{amsmath,amssymb,amsfonts}
-\usepackage{algorithmic}
-\usepackage{algorithm}
-\usepackage{graphicx}
-\usepackage{textcomp}
-\usepackage{xcolor}
-\usepackage{booktabs}
-\usepackage{multirow}
+\documentclass{article}
+
+% arXiv preprint style packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
 \usepackage{hyperref}
-\usepackage{cite}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{natbib}
+
+% Page layout
+\usepackage[margin=1in]{geometry}
+
+% Line spacing
+\usepackage{setspace}
+\onehalfspacing
+
+% Title formatting
+\title{\textbf{EGD-DLM: Entropy-Guided Distillation for\\ Accelerating Discrete Diffusion Language Models}}
+
+\author{
+  Author Name \\
+  Columbia University\\
+  STAT GR 5244: Applied Unsupervised Learning\\
+  \texttt{email@columbia.edu}
+}
+
+\date{\today}
 
 \begin{document}
 
-\title{EGD-DLM: Entropy-Guided Distillation for Accelerating Discrete Diffusion Language Models}
-
-\author{
-\IEEEauthorblockN{Author Name}
-\IEEEauthorblockA{Columbia University\\
-STAT GR 5244: Applied Unsupervised Learning\\
-}
-}
-
 \maketitle
 
+% ============================================================================
 \begin{abstract}
+% ============================================================================
 Discrete diffusion language models (DLMs) have emerged as a promising alternative to autoregressive models, offering advantages such as parallel generation and the ability to overcome the reversal curse. However, their iterative denoising process requires many sampling steps, leading to slow inference. In this work, we propose \textbf{Entropy-Guided Distillation for Discrete Diffusion Language Models (EGD-DLM)}, a novel framework that accelerates DLM inference through knowledge distillation guided by token-level entropy. Our key insight is that tokens with high entropy (high uncertainty) in the teacher's predictions represent ``hard'' knowledge that requires more attention during distillation. By weighting the distillation loss according to teacher entropy, we enable more effective knowledge transfer. Experiments on WikiText-103 demonstrate that EGD-DLM achieves \textbf{8.96$\times$ speedup} (50 steps $\rightarrow$ 8 steps) while the student model surprisingly \textbf{surpasses the teacher} in perplexity (1193.30 vs. 1207.28), a phenomenon not observed in standard distillation where student performance degrades.
 \end{abstract}
 
-\begin{IEEEkeywords}
-Diffusion Language Models, Knowledge Distillation, Entropy Scheduling, Text Generation, Unsupervised Learning
-\end{IEEEkeywords}
+\textbf{Keywords:} Diffusion Language Models, Knowledge Distillation, Entropy Scheduling, Text Generation, Unsupervised Learning
 
 % ============================================================================
 \section{Introduction}
+\label{sec:intro}
 % ============================================================================
 
-Large language models (LLMs) have revolutionized natural language processing, with autoregressive (AR) models like GPT \cite{radford2019language} and LLaMA \cite{touvron2023llama} achieving remarkable performance across diverse tasks. However, AR models suffer from inherent limitations: sequential token generation prevents parallelization, and the unidirectional nature leads to the ``reversal curse'' where models struggle with bidirectional reasoning \cite{berglund2023reversal}.
+Large language models (LLMs) have revolutionized natural language processing, with autoregressive (AR) models like GPT \citep{radford2019language} and LLaMA \citep{touvron2023llama} achieving remarkable performance across diverse tasks. However, AR models suffer from inherent limitations: sequential token generation prevents parallelization, and the unidirectional nature leads to the ``reversal curse'' where models struggle with bidirectional reasoning \citep{berglund2023reversal}.
 
-Diffusion models, originally developed for continuous domains like images \cite{ho2020denoising, song2020score}, have recently been adapted to discrete text generation. \textbf{Discrete Diffusion Language Models (DLMs)} such as MDLM \cite{sahoo2024simple}, SEDD \cite{lou2024discrete}, and LLaDA \cite{nie2025llada} demonstrate competitive performance with AR models while enabling parallel generation. LLaDA, in particular, scales to 8 billion parameters and matches LLaMA3-8B performance while using significantly fewer training tokens.
+Diffusion models, originally developed for continuous domains like images \citep{ho2020denoising, song2020score}, have recently been adapted to discrete text generation. \textbf{Discrete Diffusion Language Models (DLMs)} such as MDLM \citep{sahoo2024simple}, SEDD \citep{lou2024discrete}, and LLaDA \citep{nie2025llada} demonstrate competitive performance with AR models while enabling parallel generation. LLaDA, in particular, scales to 8 billion parameters and matches LLaMA3-8B performance while using significantly fewer training tokens.
 
 Despite these advances, DLMs face a critical challenge: \textbf{slow inference} due to the iterative denoising process. While AR models generate one token per forward pass, DLMs typically require 50-1000 denoising steps, creating a significant computational bottleneck.
 
 \subsection{Related Work}
 
-\textbf{Discrete Diffusion Language Models.} Early work on discrete diffusion includes D3PM \cite{austin2021structured} which introduced structured transition matrices for categorical data. MDLM \cite{sahoo2024simple} simplified the framework using masked diffusion, where the forward process progressively masks tokens and the reverse process predicts masked positions. SEDD \cite{lou2024discrete} proposed score entropy as a principled loss function for discrete spaces. Most recently, LLaDA \cite{nie2025llada} demonstrated that masked diffusion models can scale to 8B parameters and achieve competitive performance with state-of-the-art AR models.
+\textbf{Discrete Diffusion Language Models.} Early work on discrete diffusion includes D3PM \citep{austin2021structured} which introduced structured transition matrices for categorical data. MDLM \citep{sahoo2024simple} simplified the framework using masked diffusion, where the forward process progressively masks tokens and the reverse process predicts masked positions. SEDD \citep{lou2024discrete} proposed score entropy as a principled loss function for discrete spaces. Most recently, LLaDA \citep{nie2025llada} demonstrated that masked diffusion models can scale to 8B parameters and achieve competitive performance with state-of-the-art AR models.
 
-\textbf{Diffusion Model Acceleration.} Several approaches have been proposed to accelerate diffusion models. For continuous diffusion, consistency models \cite{song2023consistency} and progressive distillation \cite{salimans2022progressive} reduce sampling steps through knowledge distillation. For discrete diffusion, SDTT \cite{deschenaux2024sdtt} applies self-distillation through time to reduce steps from 1024 to 32-64. D2F \cite{chen2025d2f} creates AR-diffusion hybrids achieving 50$\times$ acceleration. DiDi-Instruct \cite{wang2025didi} applies distribution-matching distillation to achieve up to 64$\times$ speedup.
+\textbf{Diffusion Model Acceleration.} Several approaches have been proposed to accelerate diffusion models. For continuous diffusion, consistency models \citep{song2023consistency} and progressive distillation \citep{salimans2022progressive} reduce sampling steps through knowledge distillation. For discrete diffusion, SDTT \citep{deschenaux2024sdtt} applies self-distillation through time to reduce steps from 1024 to 32-64. D2F \citep{chen2025d2f} creates AR-diffusion hybrids achieving 50$\times$ acceleration. DiDi-Instruct \citep{wang2025didi} applies distribution-matching distillation to achieve up to 64$\times$ speedup.
 
-\textbf{Entropy in Diffusion Models.} Entropy has been explored for improving diffusion models. Diffusion-EAGS \cite{han2024diffusion} uses entropy-adaptive Gibbs sampling during inference for controlled text generation. Entropic time schedulers \cite{liu2025entropic} propose time reparameterization based on entropy rate. However, these methods focus on sampling-time entropy scheduling rather than training-time optimization.
+\textbf{Entropy in Diffusion Models.} Entropy has been explored for improving diffusion models. Diffusion-EAGS \citep{han2024diffusion} uses entropy-adaptive Gibbs sampling during inference for controlled text generation. Entropic time schedulers \citep{liu2025entropic} propose time reparameterization based on entropy rate. However, these methods focus on sampling-time entropy scheduling rather than training-time optimization.
 
 \subsection{Contributions}
 
@@ -58,16 +76,17 @@ We propose \textbf{EGD-DLM}, which makes the following contributions:
 
     \item \textbf{Entropy-Guided Distillation}: We extend entropy scheduling to the distillation phase. By using teacher entropy to identify ``hard'' tokens, we weight the distillation loss to prioritize knowledge transfer for difficult cases.
 
-    \item \textbf{Empirical Validation}: We demonstrate that EGD-DLM achieves 8.96$\times$ speedup on WikiText-103, and uniquely, the student \textit{surpasses} the teacher in perplexity—a phenomenon not observed in standard distillation.
+    \item \textbf{Empirical Validation}: We demonstrate that EGD-DLM achieves 8.96$\times$ speedup on WikiText-103, and uniquely, the student \textit{surpasses} the teacher in perplexity---a phenomenon not observed in standard distillation.
 \end{enumerate}
 
 % ============================================================================
 \section{Method}
+\label{sec:method}
 % ============================================================================
 
 \subsection{Preliminaries: Discrete Diffusion}
 
-Following LLaDA \cite{nie2025llada}, we adopt a mask-based discrete diffusion framework. Let $\mathbf{x}_0 = (x_0^1, \ldots, x_0^L) \in \mathcal{V}^L$ denote a sequence of $L$ tokens from vocabulary $\mathcal{V}$.
+Following LLaDA \citep{nie2025llada}, we adopt a mask-based discrete diffusion framework. Let $\mathbf{x}_0 = (x_0^1, \ldots, x_0^L) \in \mathcal{V}^L$ denote a sequence of $L$ tokens from vocabulary $\mathcal{V}$.
 
 \textbf{Forward Process.} The forward process progressively masks tokens. At timestep $t \in [0, 1]$, each token is independently masked with probability $t$:
 \begin{equation}
@@ -131,7 +150,7 @@ where $\tau$ is the temperature for softening distributions, and $\mathcal{L}_{\
 
 \subsection{Model Architecture}
 
-We use a Transformer encoder architecture similar to BERT \cite{devlin2019bert} and LLaDA \cite{nie2025llada}:
+We use a Transformer encoder architecture similar to BERT \citep{devlin2019bert} and LLaDA \citep{nie2025llada}:
 
 \begin{itemize}
     \item \textbf{Token Embedding}: Learnable embedding matrix $\mathbf{E} \in \mathbb{R}^{|\mathcal{V}| \times d}$
@@ -143,6 +162,7 @@ We use a Transformer encoder architecture similar to BERT \cite{devlin2019bert} 
 
 % ============================================================================
 \section{Theoretical Motivation}
+\label{sec:theory}
 % ============================================================================
 
 \subsection{Why Entropy Weighting Helps}
@@ -158,15 +178,16 @@ By weighting with teacher entropy, we effectively implement \textbf{curriculum l
 
 \subsection{Connection to Label Smoothing}
 
-Interestingly, entropy-guided distillation has a connection to label smoothing \cite{muller2019does}. High-entropy teacher predictions naturally provide smoother targets than one-hot labels. By emphasizing these cases, we may achieve regularization benefits similar to label smoothing, potentially explaining why our student can surpass the teacher.
+Interestingly, entropy-guided distillation has a connection to label smoothing \citep{muller2019does}. High-entropy teacher predictions naturally provide smoother targets than one-hot labels. By emphasizing these cases, we may achieve regularization benefits similar to label smoothing, potentially explaining why our student can surpass the teacher.
 
 % ============================================================================
-\section{Empirical Studies}
+\section{Experiments}
+\label{sec:experiments}
 % ============================================================================
 
 \subsection{Experimental Setup}
 
-\textbf{Dataset.} We evaluate on WikiText-103 \cite{merity2017pointer}, a large-scale language modeling benchmark containing approximately 100M tokens from Wikipedia articles. We limit vocabulary size to 30,000 tokens for computational efficiency.
+\textbf{Dataset.} We evaluate on WikiText-103 \citep{merity2017pointer}, a large-scale language modeling benchmark containing approximately 100M tokens from Wikipedia articles. We limit vocabulary size to 30,000 tokens for computational efficiency.
 
 \textbf{Model Configuration.} Our model uses the following architecture:
 \begin{itemize}
@@ -204,7 +225,7 @@ Interestingly, entropy-guided distillation has a connection to label smoothing \
 
 To provide comprehensive comparison with course-relevant unsupervised learning methods, we implement the following baselines:
 
-\textbf{Variational Autoencoder (VAE).} We implement a VAE for text generation following \cite{bowman2016generating}. The encoder uses a bidirectional LSTM to encode the input sequence into a latent distribution $q(z|x) = \mathcal{N}(\mu, \sigma^2)$. The decoder is an LSTM that generates tokens autoregressively, conditioned on the sampled latent $z$. We use hidden dimension 256, latent dimension 64, and KL weight $\beta = 1.0$.
+\textbf{Variational Autoencoder (VAE).} We implement a VAE for text generation following \citet{bowman2016generating}. The encoder uses a bidirectional LSTM to encode the input sequence into a latent distribution $q(z|x) = \mathcal{N}(\mu, \sigma^2)$. The decoder is an LSTM that generates tokens autoregressively, conditioned on the sampled latent $z$. We use hidden dimension 256, latent dimension 64, and KL weight $\beta = 1.0$.
 
 \textbf{Important Note on Evaluation Protocols.} The PPL metrics for VAE and diffusion models are \textbf{not directly comparable} due to fundamentally different evaluation procedures:
 \begin{itemize}
@@ -233,7 +254,7 @@ The VAE achieves PPL of 110.58 (Table~\ref{tab:baselines}), which appears much b
 
 \subsection{Main Results}
 
-Table \ref{tab:main_results} presents our main experimental results comparing standard distillation (Base) with our entropy-guided approach (EGD-DLM).
+Table~\ref{tab:main_results} presents our main experimental results comparing standard distillation (Base) with our entropy-guided approach (EGD-DLM).
 
 \begin{table}[t]
 \centering
@@ -263,7 +284,7 @@ Base & 0.0 & 0.0 & 1178.97 & 1192.95 & +1.19\% & 8.93$\times$ \\
 
 \subsection{Analysis of Entropy Dynamics}
 
-Table \ref{tab:entropy_dynamics} shows the entropy evolution during distillation.
+Table~\ref{tab:entropy_dynamics} shows the entropy evolution during distillation.
 
 \begin{table}[t]
 \centering
@@ -283,7 +304,7 @@ In both cases, student entropy converges toward teacher entropy, indicating succ
 
 \subsection{Distillation Loss Analysis}
 
-Figure~\ref{fig:soft_loss} illustrates the soft loss (KL divergence) evolution during distillation.
+Table~\ref{tab:soft_loss} illustrates the soft loss (KL divergence) evolution during distillation.
 
 \begin{table}[t]
 \centering
@@ -335,6 +356,7 @@ These analyses reveal that our diffusion model learns a \textit{continuous seman
 
 % ============================================================================
 \section{Discussion}
+\label{sec:discussion}
 % ============================================================================
 
 \subsection{Why Does the Student Surpass the Teacher?}
@@ -370,9 +392,10 @@ The phenomenon of student surpassing teacher in EGD-DLM is noteworthy. We hypoth
 
 % ============================================================================
 \section{Conclusion}
+\label{sec:conclusion}
 % ============================================================================
 
-We presented EGD-DLM, a novel framework for accelerating discrete diffusion language models through entropy-guided distillation. Our key insight is that teacher entropy identifies ``hard'' tokens requiring more attention during knowledge transfer. Experiments on WikiText-103 demonstrate that EGD-DLM achieves 8.96$\times$ speedup while uniquely enabling the student to surpass its teacher in perplexity—a phenomenon not observed in standard distillation. This work opens new directions for efficient diffusion-based text generation.
+We presented EGD-DLM, a novel framework for accelerating discrete diffusion language models through entropy-guided distillation. Our key insight is that teacher entropy identifies ``hard'' tokens requiring more attention during knowledge transfer. Experiments on WikiText-103 demonstrate that EGD-DLM achieves 8.96$\times$ speedup while uniquely enabling the student to surpass its teacher in perplexity---a phenomenon not observed in standard distillation. This work opens new directions for efficient diffusion-based text generation.
 
 % ============================================================================
 \section*{Acknowledgments}
@@ -384,68 +407,109 @@ This work was completed as part of STAT GR 5244: Applied Unsupervised Learning a
 % References
 % ============================================================================
 
-\bibliographystyle{IEEEtran}
+\bibliographystyle{plainnat}
+
 \begin{thebibliography}{99}
 
-\bibitem{radford2019language}
-A. Radford, J. Wu, R. Child, D. Luan, D. Amodei, and I. Sutskever, ``Language models are unsupervised multitask learners,'' \textit{OpenAI blog}, vol. 1, no. 8, p. 9, 2019.
+\bibitem[Austin et al.(2021)]{austin2021structured}
+J.~Austin, D.~D. Johnson, J.~Ho, D.~Tarlow, and R.~van den Berg.
+\newblock Structured denoising diffusion models in discrete state-spaces.
+\newblock \emph{Advances in Neural Information Processing Systems}, 34:17981--17993, 2021.
 
-\bibitem{touvron2023llama}
-H. Touvron, T. Lavril, G. Izacard, et al., ``LLaMA: Open and efficient foundation language models,'' \textit{arXiv preprint arXiv:2302.13971}, 2023.
+\bibitem[Berglund et al.(2023)]{berglund2023reversal}
+L.~Berglund, M.~Tong, M.~Kaufmann, et al.
+\newblock The reversal curse: LLMs trained on `A is B' fail to learn `B is A'.
+\newblock \emph{arXiv preprint arXiv:2309.12288}, 2023.
 
-\bibitem{berglund2023reversal}
-L. Berglund, M. Tong, M. Kaufmann, et al., ``The reversal curse: LLMs trained on `A is B' fail to learn `B is A','' \textit{arXiv preprint arXiv:2309.12288}, 2023.
+\bibitem[Bowman et al.(2016)]{bowman2016generating}
+S.~R. Bowman, L.~Vilnis, O.~Vinyals, A.~M. Dai, R.~Jozefowicz, and S.~Bengio.
+\newblock Generating sentences from a continuous space.
+\newblock \emph{CoNLL}, 2016.
 
-\bibitem{ho2020denoising}
-J. Ho, A. Jain, and P. Abbeel, ``Denoising diffusion probabilistic models,'' \textit{Advances in Neural Information Processing Systems}, vol. 33, pp. 6840--6851, 2020.
+\bibitem[Chen et al.(2025)]{chen2025d2f}
+Z.~Chen, Y.~Wu, et al.
+\newblock Diffusion LLMs can do faster-than-AR inference via discrete diffusion forcing.
+\newblock \emph{arXiv preprint arXiv:2508.09192}, 2025.
 
-\bibitem{song2020score}
-Y. Song, J. Sohl-Dickstein, D. P. Kingma, A. Kumar, S. Ermon, and B. Poole, ``Score-based generative modeling through stochastic differential equations,'' \textit{arXiv preprint arXiv:2011.13456}, 2020.
+\bibitem[Deschenaux et al.(2024)]{deschenaux2024sdtt}
+J.~Deschenaux, S.~Gao, and A.~Courville.
+\newblock Self-distillation through time for diffusion models.
+\newblock \emph{International Conference on Learning Representations}, 2025.
 
-\bibitem{sahoo2024simple}
-S. Sahoo, M. Arriola, Y. Schiff, et al., ``Simple and effective masked diffusion language models,'' \textit{arXiv preprint arXiv:2406.07524}, 2024.
+\bibitem[Devlin et al.(2019)]{devlin2019bert}
+J.~Devlin, M.-W. Chang, K.~Lee, and K.~Toutanova.
+\newblock BERT: Pre-training of deep bidirectional transformers for language understanding.
+\newblock \emph{NAACL-HLT}, 2019.
 
-\bibitem{lou2024discrete}
-A. Lou, C. Meng, and S. Ermon, ``Discrete diffusion modeling by estimating the ratios of the data distribution,'' \textit{International Conference on Machine Learning}, 2024.
+\bibitem[Han et al.(2024)]{han2024diffusion}
+C.~Han, et al.
+\newblock PLM-based discrete diffusion language models with entropy-adaptive Gibbs sampling.
+\newblock \emph{arXiv preprint arXiv:2411.06438}, 2024.
 
-\bibitem{nie2025llada}
-S. Nie, F. Zhu, Z. You, et al., ``Large language diffusion models,'' \textit{arXiv preprint arXiv:2502.09992}, 2025.
+\bibitem[Ho et al.(2020)]{ho2020denoising}
+J.~Ho, A.~Jain, and P.~Abbeel.
+\newblock Denoising diffusion probabilistic models.
+\newblock \emph{Advances in Neural Information Processing Systems}, 33:6840--6851, 2020.
 
-\bibitem{austin2021structured}
-J. Austin, D. D. Johnson, J. Ho, D. Tarlow, and R. van den Berg, ``Structured denoising diffusion models in discrete state-spaces,'' \textit{Advances in Neural Information Processing Systems}, vol. 34, pp. 17981--17993, 2021.
+\bibitem[Liu et al.(2025)]{liu2025entropic}
+Z.~Liu, et al.
+\newblock Entropic time schedulers for generative diffusion models.
+\newblock \emph{arXiv preprint arXiv:2504.13612}, 2025.
 
-\bibitem{song2023consistency}
-Y. Song, P. Dhariwal, M. Chen, and I. Sutskever, ``Consistency models,'' \textit{International Conference on Machine Learning}, 2023.
+\bibitem[Lou et al.(2024)]{lou2024discrete}
+A.~Lou, C.~Meng, and S.~Ermon.
+\newblock Discrete diffusion modeling by estimating the ratios of the data distribution.
+\newblock \emph{International Conference on Machine Learning}, 2024.
 
-\bibitem{salimans2022progressive}
-T. Salimans and J. Ho, ``Progressive distillation for fast sampling of diffusion models,'' \textit{International Conference on Learning Representations}, 2022.
+\bibitem[Merity et al.(2017)]{merity2017pointer}
+S.~Merity, C.~Xiong, J.~Bradbury, and R.~Socher.
+\newblock Pointer sentinel mixture models.
+\newblock \emph{International Conference on Learning Representations}, 2017.
 
-\bibitem{deschenaux2024sdtt}
-J. Deschenaux, S. Gao, and A. Courville, ``Self-distillation through time for diffusion models,'' \textit{International Conference on Learning Representations}, 2025.
+\bibitem[M{\"u}ller et al.(2019)]{muller2019does}
+R.~M{\"u}ller, S.~Kornblith, and G.~E. Hinton.
+\newblock When does label smoothing help?
+\newblock \emph{Advances in Neural Information Processing Systems}, 32, 2019.
 
-\bibitem{chen2025d2f}
-Z. Chen, Y. Wu, et al., ``Diffusion LLMs can do faster-than-AR inference via discrete diffusion forcing,'' \textit{arXiv preprint arXiv:2508.09192}, 2025.
+\bibitem[Nie et al.(2025)]{nie2025llada}
+S.~Nie, F.~Zhu, Z.~You, et al.
+\newblock Large language diffusion models.
+\newblock \emph{arXiv preprint arXiv:2502.09992}, 2025.
 
-\bibitem{wang2025didi}
-Y. Wang, et al., ``Ultra-fast language generation via discrete diffusion divergence instruct,'' \textit{arXiv preprint arXiv:2509.25035}, 2025.
+\bibitem[Radford et al.(2019)]{radford2019language}
+A.~Radford, J.~Wu, R.~Child, D.~Luan, D.~Amodei, and I.~Sutskever.
+\newblock Language models are unsupervised multitask learners.
+\newblock \emph{OpenAI blog}, 1(8):9, 2019.
 
-\bibitem{han2024diffusion}
-C. Han, et al., ``PLM-based discrete diffusion language models with entropy-adaptive Gibbs sampling,'' \textit{arXiv preprint arXiv:2411.06438}, 2024.
+\bibitem[Sahoo et al.(2024)]{sahoo2024simple}
+S.~Sahoo, M.~Arriola, Y.~Schiff, et al.
+\newblock Simple and effective masked diffusion language models.
+\newblock \emph{arXiv preprint arXiv:2406.07524}, 2024.
 
-\bibitem{liu2025entropic}
-Z. Liu, et al., ``Entropic time schedulers for generative diffusion models,'' \textit{arXiv preprint arXiv:2504.13612}, 2025.
+\bibitem[Salimans and Ho(2022)]{salimans2022progressive}
+T.~Salimans and J.~Ho.
+\newblock Progressive distillation for fast sampling of diffusion models.
+\newblock \emph{International Conference on Learning Representations}, 2022.
 
-\bibitem{devlin2019bert}
-J. Devlin, M.-W. Chang, K. Lee, and K. Toutanova, ``BERT: Pre-training of deep bidirectional transformers for language understanding,'' \textit{NAACL-HLT}, 2019.
+\bibitem[Song et al.(2020)]{song2020score}
+Y.~Song, J.~Sohl-Dickstein, D.~P. Kingma, A.~Kumar, S.~Ermon, and B.~Poole.
+\newblock Score-based generative modeling through stochastic differential equations.
+\newblock \emph{arXiv preprint arXiv:2011.13456}, 2020.
 
-\bibitem{muller2019does}
-R. M{\"u}ller, S. Kornblith, and G. E. Hinton, ``When does label smoothing help?,'' \textit{Advances in Neural Information Processing Systems}, vol. 32, 2019.
+\bibitem[Song et al.(2023)]{song2023consistency}
+Y.~Song, P.~Dhariwal, M.~Chen, and I.~Sutskever.
+\newblock Consistency models.
+\newblock \emph{International Conference on Machine Learning}, 2023.
 
-\bibitem{merity2017pointer}
-S. Merity, C. Xiong, J. Bradbury, and R. Socher, ``Pointer sentinel mixture models,'' \textit{International Conference on Learning Representations}, 2017.
+\bibitem[Touvron et al.(2023)]{touvron2023llama}
+H.~Touvron, T.~Lavril, G.~Izacard, et al.
+\newblock LLaMA: Open and efficient foundation language models.
+\newblock \emph{arXiv preprint arXiv:2302.13971}, 2023.
 
-\bibitem{bowman2016generating}
-S. R. Bowman, L. Vilnis, O. Vinyals, A. M. Dai, R. Jozefowicz, and S. Bengio, ``Generating sentences from a continuous space,'' \textit{CoNLL}, 2016.
+\bibitem[Wang et al.(2025)]{wang2025didi}
+Y.~Wang, et al.
+\newblock Ultra-fast language generation via discrete diffusion divergence instruct.
+\newblock \emph{arXiv preprint arXiv:2509.25035}, 2025.
 
 \end{thebibliography}
 
