@@ -13,6 +13,7 @@
 \usepackage{graphicx}
 \usepackage{cite}
 \usepackage{xcolor}
+\usepackage{listings}
 
 \title{STAT GR5244 Unsupervised Learning: Homework 3}
 
@@ -28,6 +29,14 @@ New York, NY 10027\\
 
 \maketitle
 
+\begin{abstract}
+Discrete diffusion language models (DLMs) offer parallel generation but suffer from slow inference due to iterative denoising. We identify two critical gaps in current DLM research: (1) \textbf{inefficient sampling on high-dimensional manifolds}, where the iterative denoising process requires 50-1000 steps to traverse the complex semantic space, and (2) \textbf{undifferentiated learning across tokens}, where standard training treats all tokens equally without considering their inherent difficulty. We propose \textbf{Entropy-Guided Distillation (EGD-DLM)}, which addresses both gaps through entropy-weighted training and distillation. Our key insight is that token-level entropy identifies ``hard'' tokens requiring more attention, enabling structure-aware learning that focuses model capacity on uncertain regions. Experiments on WikiText-103 demonstrate \textbf{8.96$\times$ speedup} while the student surprisingly \textbf{surpasses the teacher} in perplexity (1193.30 vs. 1207.28)---a phenomenon not observed in standard distillation.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Diffusion Language Models, Knowledge Distillation, Entropy Scheduling, Unsupervised Learning
+\end{IEEEkeywords}
+
 % ============================================================================
 \section{Introduction}
 \label{sec:intro}
@@ -37,7 +46,13 @@ Large language models (LLMs) have revolutionized natural language processing, wi
 
 Diffusion models, originally developed for continuous domains like images \cite{ho2020denoising, song2020score}, have recently been adapted to discrete text generation. \textbf{Discrete Diffusion Language Models (DLMs)} such as MDLM \cite{sahoo2024simple}, SEDD \cite{lou2024discrete}, and LLaDA \cite{nie2025llada} demonstrate competitive performance with AR models while enabling parallel generation. LLaDA, in particular, scales to 8 billion parameters and matches LLaMA3-8B performance while using significantly fewer training tokens.
 
-Despite these advances, DLMs face a critical challenge: \textbf{slow inference} due to the iterative denoising process. While AR models generate one token per forward pass, DLMs typically require 50-1000 denoising steps, creating a significant computational bottleneck.
+Despite these advances, DLMs face two critical challenges that motivate our work:
+
+\textbf{Gap 1: Inefficient Sampling on High-Dimensional Manifolds.} While AR models generate one token per forward pass, DLMs typically require 50-1000 denoising steps to traverse the high-dimensional semantic manifold. This iterative process creates a significant computational bottleneck, limiting the practical deployment of DLMs in real-time applications.
+
+\textbf{Gap 2: Undifferentiated Learning and Lack of Structure-Aware Training.} Standard DLM training treats all tokens equally, applying uniform loss weights regardless of token difficulty. However, tokens vary significantly in their prediction complexity---function words like ``the'' are easily predicted, while content words in ambiguous contexts require nuanced understanding. This undifferentiated approach wastes model capacity on trivial cases while under-training difficult ones.
+
+\textbf{Our Goal.} We aim to address both gaps simultaneously: \textit{improving inference efficiency} through knowledge distillation while \textit{enabling structure-aware learning} that focuses model capacity on the harder parts of the material. Our key insight is that \textbf{entropy serves as a natural difficulty indicator}---high-entropy predictions identify tokens where the model is uncertain, representing the ``hard'' knowledge that requires more attention during both training and distillation.
 
 \subsection{Related Work}
 
@@ -49,14 +64,14 @@ Despite these advances, DLMs face a critical challenge: \textbf{slow inference} 
 
 \subsection{Contributions}
 
-We propose \textbf{EGD-DLM}, which makes the following contributions:
+We propose \textbf{EGD-DLM (Entropy-Guided Distillation for Discrete Diffusion Language Models)}, a framework that directly addresses both identified gaps:
 
 \begin{enumerate}
-    \item \textbf{Entropy-Scheduled Training}: We introduce entropy-weighted loss during teacher training, where tokens with higher prediction entropy receive larger loss weights. This focuses learning capacity on uncertain (harder) tokens.
+    \item \textbf{Addressing Gap 1 -- Efficient Sampling via Distillation}: We apply knowledge distillation to compress a 50-step teacher model into an 8-step student, achieving \textbf{8.96$\times$ speedup} while maintaining generation quality. This directly tackles the inefficient sampling problem on high-dimensional manifolds.
 
-    \item \textbf{Entropy-Guided Distillation}: We extend entropy scheduling to the distillation phase. By using teacher entropy to identify ``hard'' tokens, we weight the distillation loss to prioritize knowledge transfer for difficult cases.
+    \item \textbf{Addressing Gap 2 -- Structure-Aware Learning via Entropy Weighting}: We introduce \textit{entropy-scheduled training} and \textit{entropy-guided distillation}, where tokens with higher prediction entropy (harder tokens) receive larger loss weights. This enables the model to focus learning capacity on uncertain, difficult regions rather than wasting resources on trivial predictions.
 
-    \item \textbf{Empirical Validation}: We demonstrate that EGD-DLM achieves 8.96$\times$ speedup on WikiText-103, and uniquely, the student \textit{surpasses} the teacher in perplexity---a phenomenon not observed in standard distillation.
+    \item \textbf{Novel Finding -- Student Surpasses Teacher}: We demonstrate an unexpected phenomenon: the distilled student \textit{outperforms} its teacher in perplexity (1193.30 vs. 1207.28). We hypothesize this ``remedial effect'' arises because entropy-guided distillation provides implicit regularization through softer targets on hard tokens, improving generalization.
 \end{enumerate}
 
 % ============================================================================
@@ -438,8 +453,12 @@ We presented EGD-DLM, a novel framework for accelerating discrete diffusion lang
 This work was completed as part of STAT GR 5244: Applied Unsupervised Learning at Columbia University. We thank the course instructor and TAs for their guidance and feedback.
 
 % ============================================================================
-% References
+\newpage
+\appendix
 % ============================================================================
+
+\section{References}
+\label{appendix:references}
 
 \bibliographystyle{IEEEtran}
 
@@ -546,5 +565,55 @@ Y.~Wang, et al.,
 \emph{arXiv preprint arXiv:2509.25035}, 2025.
 
 \end{thebibliography}
+
+% ============================================================================
+\section{Source Code}
+\label{appendix:code}
+% ============================================================================
+
+The complete implementation is available on GitHub. Below we list the main code files corresponding to the methods described in this paper.
+
+\subsection{Main Model Implementation}
+
+\textbf{File: \texttt{egd\_dlm.py}} -- Core implementation of EGD-DLM including the Transformer architecture, entropy-scheduled training, and entropy-guided distillation.
+
+\lstset{
+    basicstyle=\ttfamily\footnotesize,
+    frame=single,
+    breaklines=true,
+    numbers=left,
+    numberstyle=\tiny,
+    language=Python,
+    showstringspaces=false,
+    commentstyle=\color{gray},
+    keywordstyle=\color{blue}
+}
+
+% Placeholder for code - user will manually add
+\begin{lstlisting}
+# egd_dlm.py
+# Full implementation available on GitHub
+# Please see repository for complete source code
+\end{lstlisting}
+
+\subsection{VAE Baseline}
+
+\textbf{File: \texttt{vae\_baseline.py}} -- Variational Autoencoder baseline for text generation using LSTM encoder-decoder architecture.
+
+\begin{lstlisting}
+# vae_baseline.py
+# Full implementation available on GitHub
+# Please see repository for complete source code
+\end{lstlisting}
+
+\subsection{Embedding Analysis}
+
+\textbf{File: \texttt{run\_analysis.py}} -- PCA, clustering, and t-SNE analysis scripts for embedding space visualization.
+
+\begin{lstlisting}
+# run_analysis.py
+# Full implementation available on GitHub
+# Please see repository for complete source code
+\end{lstlisting}
 
 \end{document}
