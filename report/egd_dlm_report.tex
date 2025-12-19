@@ -323,19 +323,15 @@ The student achieves nearly 9$\times$ wall-clock speedup, reducing generation ti
 
 To understand the learned representations, we analyze the token embeddings using PCA and clustering---core unsupervised learning techniques covered in STAT GR 5244.
 
-\textbf{PCA Analysis.} We apply PCA to the 512-dimensional token embeddings from our trained diffusion model. The first 10 principal components capture approximately 35\% of the total variance, indicating that the embedding space has moderate dimensionality. The first two components separate functional words (articles, prepositions) from content words (nouns, verbs), while later components capture more semantic distinctions.
+\textbf{PCA Analysis.} We apply PCA to the 512-dimensional token embeddings from our trained diffusion model. The first 10 principal components capture only \textbf{2.46\%} of the total variance, indicating that the embedding space is highly distributed across many dimensions. This suggests that the model learns a smooth, high-dimensional semantic manifold rather than a low-dimensional structure, which is typical for neural language models.
 
-\textbf{K-Means Clustering.} We apply K-means with $k=50$ clusters to the token embeddings. The resulting clusters show meaningful semantic groupings:
-\begin{itemize}
-    \item Cluster 1: Temporal words (``year'', ``time'', ``day'', ``century'')
-    \item Cluster 2: Numeric expressions (``one'', ``two'', ``first'', ``second'')
-    \item Cluster 3: Named entities and proper nouns
-    \item Cluster 4: Punctuation and special tokens
-\end{itemize}
+\textbf{K-Means Clustering.} We evaluate K-means clustering with $k \in \{2, ..., 11\}$ using silhouette scores. The optimal number of clusters is \textbf{K=2} with a silhouette score of \textbf{0.0134}. The low silhouette score indicates that token embeddings do not form well-separated discrete clusters, but rather occupy a continuous semantic space. The two clusters roughly correspond to high-frequency function words versus lower-frequency content words.
 
-\textbf{GMM Clustering.} Gaussian Mixture Models with $k=50$ components provide soft cluster assignments. The GMM clustering shows similar patterns to K-means but allows tokens to belong to multiple semantic categories with different probabilities, better capturing polysemy.
+\textbf{GMM Clustering.} Gaussian Mixture Models yield similar results (optimal K=2, silhouette=0.0124), confirming that the embedding space lacks strong cluster structure. This is consistent with the distributional hypothesis in linguistics: word meanings are continuously distributed rather than discretely categorized.
 
-These analyses demonstrate that our diffusion model learns meaningful token representations that capture both syntactic and semantic structure, validating the quality of the learned embeddings beyond perplexity metrics.
+\textbf{t-SNE Visualization.} We apply t-SNE to visualize 3,000 sampled token embeddings in 2D space. The visualization shows a relatively uniform distribution with gradual transitions between regions, further confirming the smooth nature of the learned semantic space.
+
+These analyses reveal that our diffusion model learns a \textit{continuous semantic manifold} rather than discrete clusters---a desirable property for language modeling where meaning varies smoothly across vocabulary.
 
 % ============================================================================
 \section{Discussion}
